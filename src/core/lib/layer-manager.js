@@ -88,6 +88,7 @@ export default class LayerManager {
       },
       shaderCache: new ShaderCache({gl})
     };
+    this._isContextDirty = false;
 
     seerInitListener(this._initSeer);
     layerEditListener(this._editSeer);
@@ -144,6 +145,7 @@ export default class LayerManager {
     }
 
     this.context = Object.assign({}, this.context, parameters);
+    this._isContextDirty = true;
   }
 
   setViewports(viewports) {
@@ -203,32 +205,38 @@ export default class LayerManager {
 
   updateLayers({newLayers}) {
     // TODO - something is generating state updates that cause rerender of the same
-    if (newLayers === this.lastRenderedLayers) {
+    if (newLayers === this.lastRenderedLayers && !this._isContextDirty) {
       log.log(3, 'Ignoring layer update due to layer array not changed');
       return this;
     }
-    this.lastRenderedLayers = newLayers;
 
-    assert(this.context.viewport, 'LayerManager.updateLayers: viewport not set');
+    if (newLayers !== this.lastRenderedLayers) {
+      this.lastRenderedLayers = newLayers;
 
-    // Filter out any null layers
-    newLayers = newLayers.filter(newLayer => newLayer !== null);
+      assert(this.context.viewport, 'LayerManager.updateLayers: viewport not set');
 
-    for (const layer of newLayers) {
+      // Filter out any null layers
+      newLayers = newLayers.filter(newLayer => newLayer !== null);
+
+      this.prevLayers = this.layers;
+      const {error, generatedLayers} = this._updateLayers({
+        oldLayers: this.prevLayers,
+        newLayers
+      });
+
+      this.layers = generatedLayers;
+      // Throw first error found, if any
+      if (error) {
+        throw error;
+      }
+    }
+
+    // Update layers context
+    for (const layer of this.layers) {
       layer.context = this.context;
     }
+    this._isContextDirty = false;
 
-    this.prevLayers = this.layers;
-    const {error, generatedLayers} = this._updateLayers({
-      oldLayers: this.prevLayers,
-      newLayers
-    });
-
-    this.layers = generatedLayers;
-    // Throw first error found, if any
-    if (error) {
-      throw error;
-    }
     return this;
   }
 
